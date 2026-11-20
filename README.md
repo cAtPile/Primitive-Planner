@@ -1,108 +1,27 @@
-# Primitive_Planner
+# Primitive-Planner
 
-## Paper
+供 `maxt_pkg` 接入的 ROS 1 单机局部路径规划器。规划节点根据目标点、里程计和障碍物点云选择运动基元，轨迹服务器将所选基元转换为位置、速度和加速度指令。
 
-Primitive-Swarm: An Ultra-lightweight and Scalable Planner for Large-scale Aerial Swarms, Accepted by IEEE Transactions on Robotics 2025. [[IEEE TRO]](https://ieeexplore.ieee.org/document/11015263) [[Arxiv]](https://arxiv.org/abs/2502.16887) [[Video]](https://www.bilibili.com/video/BV1Q4PNeeE7D?spm_id_from=333.788.videopod.episodes&vd_source=acac17792f24970ff76c5eae9ba38289&p=2)
+## 构建与启动
 
-Author list: Jialiang Hou, Xin Zhou, Neng Pan, Ang Li, Yuxiang Guan, Chao Xu, Zhongxue Gan, Fei Gao
+在已加载 ROS Noetic 环境的仓库根目录执行以下命令。基元生成脚本依赖 Python 3 的 toppra、NumPy、SciPy 和 Matplotlib。脚本会重建 `src/planner/plan_manage/primitive_library/`，已有匹配的基元库时可跳过生成步骤。
 
-```
-@ARTICLE{Hou2025PrimitiveSwarm,
-  author={Hou, Jialiang and Zhou, Xin and Pan, Neng and Li, Ang and Guan, Yuxiang and Xu, Chao and Gan, Zhongxue and Gao, Fei},
-  journal={IEEE Transactions on Robotics}, 
-  title={Primitive-Swarm: An Ultra-Lightweight and Scalable Planner for Large-Scale Aerial Swarms}, 
-  year={2025},
-  volume={41},
-  number={},
-  pages={3629-3648},
-  keywords={Robots;Trajectory;Collision avoidance;Computational efficiency;Scalability;Planning;Libraries;Robot sensing systems;Drones;Heuristic algorithms;Autonomous aerial vehicles;collision avoidance;motion planning;swarm robotics;trajectory optimization},
-  doi={10.1109/TRO.2025.3573667}}
-
-```
-
-
-## System Overview
-<p align = "center">
-<img src="misc/system overview.png" />
-</p>
-
-
-## Requirements
-
-The code is tested on clean Ubuntu 20.04 with ROS noetic installation.
-
-Install the required package toppra:
-```
-sudo pip3 install toppra catkin_pkg PyYAML empy matplotlib pyrfc3339
-```
-
-## Run the code
-
-### 1. Download and compile the code
-
-```
-git clone https://github.com/ZJU-FAST-Lab/Primitive-Planner.git
-cd Primitive-Planner
+```bash
 catkin_make -DCMAKE_BUILD_TYPE=Release
+source devel/setup.bash
+python3 src/scripts/generate_primitives.py
+roslaunch primitive_planner planner.launch
 ```
 
-### 2. Generate the motion primitive library
+## maxt_pkg 接口
 
-```
-cd src/scripts
-python3 swarm_path.py
-```
-The generated motion primitive library is stored in "src/planner/plan_manage/primitive_library/".
+| 启动参数 | 默认话题 | 消息类型 | 用途 |
+| --- | --- | --- | --- |
+| odom | /odom | nav_msgs/Odometry | 输入当前位置、姿态与速度 |
+| cloud | /cloud | sensor_msgs/PointCloud2 | 输入世界坐标系中的障碍物点云 |
+| goal | /goal | geometry_msgs/PoseStamped | 输入同一世界坐标系下的目标位置 |
+| position_cmd | /position_cmd | quadrotor_msgs/PositionCommand | 输出轨迹采样指令 |
 
-### 3. Run the planner
+在宿主 launch 中包含 `$(find primitive_planner)/launch/planner.launch`，并将上述参数映射到实际话题。目标点使用位置字段，调用方负责统一输入坐标系。`map_size_x`、`map_size_y` 和 `map_size_z` 指定规划边界尺寸（米）。`primitive_folder` 可指定已有基元库的位置。
 
-In the "Primitive-Planner/" directory:
-```
-source devel/setup.bash # or setup.zsh
-cd src/scripts
-python3 gen_position_swap.py 20 # It will generate the swarm.launch with 20 drones
-roslaunch primitive_planner swarm.launch
-```
-
-Wait until all the nodes have their launch process finished and keep printing "[FSM]: state: WAIT_TARGET. Waiting for trigger".
-
-Open another terminal, publish the trigger
-```
-cd src/scripts
-bash pub_trigger.sh
-```
-Then the drones (drone number is 40) will start to fly like this
-<p align = "center">
-<img src="misc/40_drone.gif" width = "500" height = "347" border="5" />
-</p>
-
-Change the drone number when executing "python3 gen_position_swap.py <drone_number>". 
-
-Before starting the "roslaunch" command, please open another terminal and run "htop" to monitor the Memory usage and CPU usage. Each drone requires about 200 MB memory. Keep the htop opened for entire flight.
-
-The computation time is printed on the terminal in blue text, named as "plan_time". 
-To get the accurate computation time, please fix the CPU frequency to its maximum by
-```
-sudo apt install cpufrequtils
-sudo cpufreq-set -g performance
-```
-Otherwise the CPU will run in powersave mode with low frequency.
-
-## Projects Supported by Primitive-Swarm
-
-- **DPNet: Efficient Dead-End Prediction and Avoidance for Vision-Based UAV Navigation**: DPNet combines dead-end prediction with a compact primitive library to proactively prune unsafe trajectories. [[Paper]](https://arxiv.org/abs/2608.16640)
-
- <p align="center">
-    <a href="https://arxiv.org/abs/2608.16640" target="_blank">
-      <img src="misc/dpnet_system_overview.png" width="600" alt="DPNet system overview" />
-    </a>
-</p>
-
-- **Neural-Primitive: An Efficient End-to-end Local Planner with Primitive-based Imitation Learning for Autonomous Flight**: It uses motion primitives as the structured representation for imitation learning, enabling end-to-end local planning for autonomous flight. [[Project]](https://zhitaoliu.github.io/neural-primitive/)
-
- <p align="center">
-    <a href="https://zhitaoliu.github.io/neural-primitive/" target="_blank">
-      <img src="misc/neural_primitive_system_overview.svg" width="600" alt="Neural-Primitive system
-      overview" />
-    </a>
-</p>
+原算法见 Hou 等发表于 IEEE Transactions on Robotics 的论文。[论文链接](https://doi.org/10.1109/TRO.2025.3573667)

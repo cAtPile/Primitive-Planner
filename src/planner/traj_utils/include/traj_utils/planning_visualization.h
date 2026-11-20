@@ -33,7 +33,6 @@ namespace primitive_planner
     ros::Publisher intermediate_grad_smoo_pub;
     ros::Publisher intermediate_grad_dist_pub;
     ros::Publisher intermediate_grad_feas_pub;
-    ros::Publisher intermediate_grad_swarm_pub;
 
   public:
     PlanningVisualization(/* args */) {}

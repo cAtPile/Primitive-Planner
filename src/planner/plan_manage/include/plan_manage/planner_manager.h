@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <ros/ros.h>
 #include <traj_utils/planning_visualization.h>
-#include <traj_utils/plan_container.hpp>
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/PointCloud2.h>
 
@@ -20,6 +19,8 @@
 #include <pcl/kdtree/kdtree_flann.h>
 
 #include <pcl/filters/random_sample.h>
+
+using std::vector;
 
 namespace primitive_planner
 {
@@ -38,24 +39,19 @@ namespace primitive_planner
     void odomCallback(const nav_msgs::OdometryConstPtr &odom);
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img);
     bool labelObsCollisionPaths(const Eigen::Vector3d &start_pt, const Eigen::Matrix3d &rotVW);
-    bool labelAgentCollisionPaths(const Eigen::Vector3d &start_pt, const Eigen::Vector3d &start_v, const double& start_time, const Eigen::Matrix3d &rotVW);
     vector<int> scorePaths(const Eigen::Vector3d &start_pt, const Eigen::Vector3d &global_goal, const Eigen::Matrix3d &rotWV);
     void visAllPaths(const Eigen::Vector3d &start_pt, const Eigen::Matrix3d &rotWV);
-    bool trajReplan(const Eigen::Vector3d &start_pt, const Eigen::Vector3d &start_v, const double& start_time, const Eigen::Matrix3d &RWV, const Eigen::Vector3d &global_goal, vector<int> &select_path_id);
+    bool trajReplan(const Eigen::Vector3d &start_pt, const Eigen::Matrix3d &RWV, const Eigen::Vector3d &global_goal, vector<int> &select_path_id);
 
 
     void readCorrespondences();
-    void readAgentCorrespondences();
     // int readPlyHeader(FILE *filePtr);
     int readPathList();
     void readPathAll();
 
-    int drone_id;
     double max_vel_;
     double arc_length_;
-    double swarm_clearence_;
     std::string primitiveFolder_;
-    SwarmTrajData swarm_traj;
 
     double voxelSize_;
 
@@ -79,12 +75,10 @@ namespace primitive_planner
     double boxX_, boxY_, boxZ_;
     double voxelX_, voxelY_, voxelZ_;
     int voxelNumX_, voxelNumY_, voxelNumZ_, voxelNumAll_;
-    int agentVoxelNumX_, agentVoxelNumAll_;
 
     int pathNum_, sampleSize_;
 
     std::vector<std::vector<int>> correspondences_;
-    std::vector<std::vector<std::vector<int>>> allVelCorrespondences_;
     std::vector<int> clearPathList_;
     std::vector<Eigen::Vector3d> pathEndList_; //body frame
     std::vector<std::vector<Eigen::Vector3d>> pathAll_, pathAllWorld_; 

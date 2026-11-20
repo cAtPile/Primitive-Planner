@@ -22,7 +22,6 @@ namespace primitive_planner
     // intermediate_grad_smoo_pub = nh.advertise<visualization_msgs::MarkerArray>("smoo_grad_dur_opt", 10);
     // intermediate_grad_dist_pub = nh.advertise<visualization_msgs::MarkerArray>("dist_grad_dur_opt", 10);
     // intermediate_grad_feas_pub = nh.advertise<visualization_msgs::MarkerArray>("feas_grad_dur_opt", 10);
-    // intermediate_grad_swarm_pub = nh.advertise<visualization_msgs::MarkerArray>("swarm_grad_dur_opt", 10);
   }
 
   // // real ids used: {id, id+1000}
@@ -342,15 +341,6 @@ namespace primitive_planner
     }
     std::vector<Eigen::Vector3d> arrow_;
     arrow_.reserve(pts.cols()*2);
-    if ( !type.compare("swarm") )
-    {
-      for ( int i=0; i<pts.cols(); i++ )
-      {
-        arrow_.emplace_back(pts.col(i));
-        arrow_.emplace_back(grad.col(i));
-      }
-    }
-    else
     {
       for ( int i=0; i<pts.cols(); i++ )
       {
@@ -379,10 +369,6 @@ namespace primitive_planner
     else if ( !type.compare("feas") )
     {
       displayArrowList(intermediate_grad_feas_pub, arrow_, 0.05, color, id);
-    }
-    else if ( !type.compare("swarm") )
-    {
-      displayArrowList(intermediate_grad_swarm_pub, arrow_, 0.02, color, id);
     }
     
   }

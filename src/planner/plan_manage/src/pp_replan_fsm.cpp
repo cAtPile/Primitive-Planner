@@ -1,7 +1,5 @@
 #include <plan_manage/pp_replan_fsm.h>
-#include <plan_manage/shared_memory.h>
 
-#define USE_SHARED_MEMORY false
 
 namespace primitive_planner
 {
@@ -26,12 +24,6 @@ double limit_yaw(double yaw)
   return yaw;
 }
 
-PPReplanFSM::~PPReplanFSM()
-{
-    detach_shared_memory(shared_memory_);
-    remove_shared_memory(shm_id_);
-}
-
 void PPReplanFSM::init(ros::NodeHandle &nh)
 {
     have_odom_ = false;
@@ -51,13 +43,6 @@ void PPReplanFSM::init(ros::NodeHandle &nh)
     nh.param("fsm/no_replan_thresh", no_replan_thresh_, 4.0);
     nh.param("fsm/waypoint_num", waypoint_num_, -1);
 
-#if USE_SHARED_MEMORY
-    // shared memory
-    const size_t size = TOTAL_DRONE_NUM_ * sizeof(SharedMemory);
-    shm_id_ = get_or_create_shared_memory(size);
-    shared_memory_ = attach_shared_memory(shm_id_);
-    swarm_traj_ptr_ = static_cast<SharedMemory*>(shared_memory_);
-#endif
 
     /* initialize main modules */
     visualization_.reset(new PlanningVisualization(nh));
@@ -76,17 +61,7 @@ void PPReplanFSM::init(ros::NodeHandle &nh)
     select_path_end_sub_ = nh.subscribe("planning/select_path_end", 100, &PPReplanFSM::pathEndCallback, this);
     cmd_sub_ = nh.subscribe("/position_cmd", 100, &PPReplanFSM::cmdCallback, this);
 
-    // swarm communication
-    broadcast_primitive_pub_ = nh.advertise<traj_utils::swarmPrimitiveTraj>("planning/broadcast_primitive_send", 100);
-
-  #if not USE_SHARED_MEMORY
-    broadcast_primitive_sub_ = nh.subscribe<traj_utils::swarmPrimitiveTraj>("planning/broadcast_primitive_recv", 100,
-                                                                  &PPReplanFSM::RecvBroadcastPrimitiveCallback,
-                                                                  this,
-                                                                  ros::TransportHints().tcpNoDelay());
-  #endif
-
-    path_id_pub_ = nh.advertise<traj_utils::swarmPrimitiveTraj>("planning/selected_path_id", 100);
+    path_id_pub_ = nh.advertise<traj_utils::primitiveTraj>("planning/selected_path_id", 100);
     stop_pub_ = nh.advertise<std_msgs::Float64MultiArray>("planning/stop_command", 100);
     heartbeat_pub_ = nh.advertise<std_msgs::Empty>("planning/heartbeat", 100);
     global_pub_ = nh.advertise<std_msgs::Float64MultiArray>("planning/global_goal", 100);
@@ -112,7 +87,7 @@ void PPReplanFSM::init(ros::NodeHandle &nh)
     // global goal
     if (target_type_ == 1)
     {
-      waypoint_sub_ = nh.subscribe("/goal_with_id", 100, &PPReplanFSM::waypointCallback, this);
+      waypoint_sub_ = nh.subscribe("goal", 100, &PPReplanFSM::waypointCallback, this);
     }
     else if (target_type_ == 2)
     {
@@ -170,17 +145,14 @@ void PPReplanFSM::init(ros::NodeHandle &nh)
 
 }
 
-void PPReplanFSM::waypointCallback(const quadrotor_msgs::GoalSetPtr &msg)
+void PPReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
 {
-  if ( msg->drone_id != planner_manager_->drone_id )
-    return;
-
-  ROS_INFO("Received goal: %f, %f, %f", msg->goal[0], msg->goal[1], msg->goal[2]);
+  ROS_INFO("Received goal: %f, %f, %f", msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
 
   waypoint_num_ = 1;
   goal_id_ = 0;
   all_goal_.clear();
-  all_goal_.push_back(Eigen::Vector3d(msg->goal[0], msg->goal[1], msg->goal[2]));
+  all_goal_.push_back(Eigen::Vector3d(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
   global_goal_ = all_goal_[0];
 
   std_msgs::Float64MultiArray goal_msg;
@@ -215,9 +187,7 @@ void PPReplanFSM::waypointCallback(const quadrotor_msgs::GoalSetPtr &msg)
 void PPReplanFSM::triggerCallback(const geometry_msgs::PoseStampedPtr &msg)
 {
     // generate folder together
-    // odom_logger_.init("/home/hjl/project/A_personal_project/primitive_swarm/bags_and_logs", "odom", planner_manager_->drone_id);
     // odom_logger_.appendData("timestamp,px,py,pz,vx,vy,vz,ax,ay,az");
-    // computing_time_logger_.init("/home/hjl/project/A_personal_project/primitive_swarm/bags_and_logs", "time", planner_manager_->drone_id);
     // computing_time_logger_.appendData("timestamp,computing_time");
 
     
@@ -232,107 +202,6 @@ void PPReplanFSM::triggerCallback(const geometry_msgs::PoseStampedPtr &msg)
     have_trigger_ = true;
     have_log_files_ = true;
     std::cout << "Triggered!" << std::endl;
-}
-
-void PPReplanFSM::RecvBroadcastPrimitiveCallback(const traj_utils::swarmPrimitiveTrajConstPtr &msg)
-{
-    const size_t recv_id = (size_t)msg->drone_id;
-    if ((int)recv_id == planner_manager_->drone_id) // myself
-      return;
-
-    // std::cout << "recv_id: " << recv_id << std::endl;
-    if(planner_manager_->swarm_traj.size() <= recv_id){
-      for(size_t i = planner_manager_->swarm_traj.size(); i <= recv_id; i++){
-        LocalTrajData blank;
-        blank.drone_id = -1;
-        blank.start_time = 0.0;
-        planner_manager_->swarm_traj.push_back(blank);
-      }
-    }
-
-    // parse data
-    Eigen::Vector3d start_pos, start_vel, end_pos;
-    start_pos << msg->start_p[0], msg->start_p[1], msg->start_p[2];
-    end_pos << msg->end_p[0], msg->end_p[1], msg->end_p[2];
-
-    Eigen::Matrix<double, 3, 3> Rwv;
-    Rwv << msg->rot_mat[0], msg->rot_mat[1], msg->rot_mat[2], 
-        msg->rot_mat[3], msg->rot_mat[4], msg->rot_mat[5], 
-        msg->rot_mat[6], msg->rot_mat[7], msg->rot_mat[8];
-
-    std::vector<int> path_id;
-    path_id.push_back(msg->select_path_id);
-
-    bool far_away = (start_pos - odom_pos_).norm() > planner_manager_->arc_length_ * 2 && 
-      (end_pos - odom_pos_).norm() > planner_manager_->arc_length_ * 2;
-
-    if(!far_away)
-    {
-      std::vector<Eigen::Vector3d> traj_pos;
-      double traj_duration;
-      int vel_id = msg->vel_id;
-      readLocalTrajPos(start_pos, vel_id, Rwv, path_id, traj_pos, traj_duration);
-      if ( vel_id != msg->vel_id ){
-        ROS_ERROR("vel_id has been changed! Should not happen!");
-      }
-
-      planner_manager_->swarm_traj[recv_id].drone_id = recv_id;
-      planner_manager_->swarm_traj[recv_id].start_time = msg->start_time.toSec();
-      planner_manager_->swarm_traj[recv_id].traj_duration = traj_duration;
-      planner_manager_->swarm_traj[recv_id].traj_pos = traj_pos;
-
-      // std::cout << "===swarm_traj===" << std::endl;
-
-      // Check collision bewteen current traj and other new traj
-#if not USE_SHARED_MEMORY
-      if (recv_id < planner_manager_->drone_id && checkCollision(recv_id)) 
-      {
-        changeFSMExecState(REPLAN_TRAJ, "SWARM_CHECK");
-      }
-#endif
-
-      // std::cout << "path_id: " << path_id[0] << std::endl;
-    }
-    else
-    {
-      planner_manager_->swarm_traj[recv_id].drone_id = -2;
-      planner_manager_->swarm_traj[recv_id].start_time = msg->start_time.toSec();
-    }
-
-}
-
-bool PPReplanFSM::checkCollision(int recv_id)
-{
-  // my first planning has not started
-  if(myself_traj_.start_time < 1e9)
-    return false;
-  // invalid trajectory
-  if(planner_manager_->swarm_traj[recv_id].drone_id != recv_id)
-    return false;
-
-  // std::cout << "===checkCollision 1 ===" << std::endl;
-  double my_traj_start_time = myself_traj_.start_time;
-
-  // std::cout << "===checkCollision 2 ===" << std::endl;
-
-  double other_traj_start_time = planner_manager_->swarm_traj[recv_id].start_time;
-
-  double t_start = std::max(my_traj_start_time, other_traj_start_time);
-  double t_end = std::min(my_traj_start_time + myself_traj_.traj_duration * 2 / 3,
-                      other_traj_start_time + planner_manager_->swarm_traj[recv_id].traj_duration);
-
-  // check time resolution = voxel_resolution/max_vel;
-  for(double t = t_start; t < t_end; t +=  planner_manager_->voxelSize_ / planner_manager_->max_vel_)
-  {
-    // precise approach: interpolation pos by time [to be realized]
-    // pos resolution: 10ms; 1000/10
-    if((myself_traj_.traj_pos[round((t - my_traj_start_time) * 100)] - planner_manager_->swarm_traj[recv_id].traj_pos[round((t - other_traj_start_time) * 100)]).norm() < planner_manager_->swarm_clearence_){
-      return true;
-    }
-  }
-
-  return false;
-
 }
 
 bool PPReplanFSM::readLocalTrajPos(Eigen::Vector3d& start_pos, int& vel_id, Eigen::Matrix<double, 3, 3>& Rwv, std::vector<int>& path_id, std::vector<Eigen::Vector3d>& traj_pos, double& traj_duration)
@@ -587,25 +456,6 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
       printFSMExecState();
     }
 
-    // static int traj_count = 0;
-    // traj_count++;
-    // if (traj_count == 10)
-    // {
-    //   traj_count = 0;
-    //   double t_now = ros::Time::now().toSec();
-    //   for ( int i=0; i<planner_manager_->swarm_traj.size(); ++i )
-    //   {
-    //     if ( exec_state_ != WAIT_TARGET && i != planner_manager_->drone_id)
-    //     {
-    //       double dt = t_now - planner_manager_->swarm_traj[i].start_time;
-    //       if( dt > 1.5 && dt < 1724662077)
-    //       {
-    //         printf("\033[41;37mmid=%d, i=%d, yid=%d, size=%d, dt=%f\033[0m\n", planner_manager_->drone_id, i, planner_manager_->swarm_traj[i].drone_id, planner_manager_->swarm_traj.size(), dt);
-    //       }
-    //     }
-    //   }
-    // }
-
     switch (exec_state_)
     {
     case INIT:
@@ -638,7 +488,6 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
       //   changeFSMExecState(EXEC_TRAJ, "FSM");
       //   flag_escape_emergency_ = true;
       //   keep_fails_ = 0;
-      //   cout << "id=" << planner_manager_->drone_id << " A" << endl;
       // }
       // else
       // {
@@ -649,7 +498,6 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
       //   {
       //     changeFSMExecState(CRASH_RECOVER, "FSM");
       //     keep_fails_ = 0;
-      //     cout << "id=" << planner_manager_->drone_id << " AA" << endl;
       //   }
       // }
 
@@ -685,7 +533,6 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
       // {
       //   changeFSMExecState(EXEC_TRAJ, "FSM");
       //   keep_fails_ = 0;
-      //   cout << "id=" << planner_manager_->drone_id << " AAA" << endl;
       // }
       // else
       // {
@@ -696,7 +543,6 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
       //   {
       //     changeFSMExecState(CRASH_RECOVER, "FSM");
       //     keep_fails_ = 0;
-      //     cout << "id=" << planner_manager_->drone_id << " AAAA" << endl;
       //   }
       // }
 
@@ -777,15 +623,15 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
 
     case CRASH_RECOVER:
     {
-      cout << "ID=" << planner_manager_->drone_id <<" crash_rec_stage_=" << crash_rec_stage_ <<endl;
+      cout << " crash_rec_stage_=" << crash_rec_stage_ <<endl;
       if (crash_rec_stage_ == 1)
       {
-        cout << "ID=" << planner_manager_->drone_id << "A=" << yaw_cmd_count_ <<" B=" << flag_pub_first_yaw_ << " C=" << odom_yaw_ <<" D=" << final_yaw_des_ << " E=" << yaw_diff(odom_yaw_, final_yaw_des_) <<endl;
+        cout <<  "A=" << yaw_cmd_count_ <<" B=" << flag_pub_first_yaw_ << " C=" << odom_yaw_ <<" D=" << final_yaw_des_ << " E=" << yaw_diff(odom_yaw_, final_yaw_des_) <<endl;
         if (planPrimitive(true))
         {
           yaw_cmd_count_ = 0;
           changeFSMExecState(EXEC_TRAJ, "CRASH");
-          ROS_INFO("Recover from crash! id=%d, crash_rec_stage_=1");
+          ROS_INFO("Recover from crash! crash_rec_stage_=1");
         }
         else if ( !flag_pub_first_yaw_ || fabs(yaw_diff(odom_yaw_, final_yaw_des_)) < 0.05 )
         {
@@ -819,8 +665,8 @@ void PPReplanFSM::execFSMCallback(const ros::TimerEvent &e)
           if ((latest_safe_pt_ - odom_pos_).norm() < 0.01)
           {
             flag_wait_crash_rec_ = false;
-            ROS_INFO("Recover from crash! id=%d, latest_safe_pt_=(%f, %f, %f)", 
-              planner_manager_->drone_id, latest_safe_pt_(0), latest_safe_pt_(1), latest_safe_pt_(2));
+            ROS_INFO("Recover from crash! latest_safe_pt_=(%f, %f, %f)",
+              latest_safe_pt_(0), latest_safe_pt_(1), latest_safe_pt_(2));
             changeFSMExecState(GEN_NEW_TRAJ, "FSM");
           }
         }
@@ -848,7 +694,7 @@ void PPReplanFSM::changeFSMExecState(FSM_EXEC_STATE new_state, std::string pos_c
     static std::string state_str[8] = {"INIT", "WAIT_TARGET", "GEN_NEW_TRAJ", "REPLAN_TRAJ", "EXEC_TRAJ", "EMERGENCY_STOP", "APPROACH_GOAL", "CRASH_RECOVER"};
     int pre_s = int(exec_state_);
     exec_state_ = new_state;
-    std::cout << "[" + pos_call + "]" << "Drone " << planner_manager_->drone_id << " from " + state_str[pre_s] + " to " + state_str[int(new_state)] << " t=" << ros::Time::now() - ros::Duration(1725265839) << std::endl;
+    std::cout << "[" + pos_call + "]" <<  " from " + state_str[pre_s] + " to " + state_str[int(new_state)] << " t=" << ros::Time::now() - ros::Duration(1725265839) << std::endl;
 }
 
 void PPReplanFSM::printFSMExecState()
@@ -881,32 +727,6 @@ void PPReplanFSM::printFSMExecState()
 bool PPReplanFSM::planPrimitive(bool first_plan, double xV_offset /*= 0.0*/ )
 {
     ros::Time t0 = ros::Time::now();
-#if USE_SHARED_MEMORY
-    // share trajecotry using shared memory
-    if(planner_manager_->swarm_traj.size() < TOTAL_DRONE_NUM_){
-      for(size_t i = planner_manager_->swarm_traj.size(); i < TOTAL_DRONE_NUM_; i++){
-        LocalTrajData blank;
-        blank.drone_id = -1;
-        blank.start_time = 0.0;
-        planner_manager_->swarm_traj.push_back(blank);
-      }
-    }
-    for ( int i=0; i<TOTAL_DRONE_NUM_; ++i )
-    {
-      if (!swarm_traj_ptr_[i].first)
-      {
-
-        if ( swarm_traj_ptr_[i].second.drone_id != -1 && std::abs(swarm_traj_ptr_[i].second.start_time.toSec() - planner_manager_->swarm_traj[i].start_time) > 0.001 )
-        {
-          traj_utils::swarmPrimitiveTrajPtr traj_ptr = boost::make_shared<traj_utils::swarmPrimitiveTraj>();
-          std::memcpy(traj_ptr.get(), &(swarm_traj_ptr_[i].second), sizeof(traj_utils::swarmPrimitiveTraj));
-          RecvBroadcastPrimitiveCallback(traj_ptr);
-        }
-
-      }
-    }
-    // ros::Time t1 = ros::Time::now();
-#endif
 
 
     // std::cout << "planPrimitive: " << odom_pos_ << std::endl;
@@ -938,7 +758,7 @@ bool PPReplanFSM::planPrimitive(bool first_plan, double xV_offset /*= 0.0*/ )
 
     // ros::Time t1 = ros::Time::now();
     vector<int> select_path_id;
-    bool plan_success = planner_manager_->trajReplan(start_pt_, start_v_, start_time_.toSec(), RWV, global_goal_, select_path_id);
+    bool plan_success = planner_manager_->trajReplan(start_pt_, RWV, global_goal_, select_path_id);
     // double duration = (ros::Time::now() - t1).toSec();
     // static int countxx = 0;
     // countxx ++;
@@ -968,15 +788,7 @@ bool PPReplanFSM::planPrimitive(bool first_plan, double xV_offset /*= 0.0*/ )
 
         // std::cout << "==========planPrimitive===========" << std::endl;
 
-        myself_traj_.drone_id = planner_manager_->drone_id;
-        myself_traj_.start_time = start_time_.toSec();
-        myself_traj_.traj_duration = traj_duration;
-        myself_traj_.traj_pos = traj_pos;
-
-
-        // std_msgs::Int8MultiArray id_msg;
-        traj_utils::swarmPrimitiveTraj traj_msg;
-        traj_msg.drone_id = planner_manager_->drone_id;
+        traj_utils::primitiveTraj traj_msg;
         traj_msg.start_time = start_time_;
         traj_msg.start_p[0] =  start_pt_(0), traj_msg.start_p[1] =  start_pt_(1), traj_msg.start_p[2] =  start_pt_(2);
         traj_msg.start_v[0] =  start_v_(0), traj_msg.start_v[1] =  start_v_(1), traj_msg.start_v[2] =  start_v_(2);
@@ -989,21 +801,6 @@ bool PPReplanFSM::planPrimitive(bool first_plan, double xV_offset /*= 0.0*/ )
         traj_msg.select_path_id = select_path_id[0];
 
         path_id_pub_.publish(traj_msg);
-#if not USE_SHARED_MEMORY
-        broadcast_primitive_pub_.publish(traj_msg);
-#else
-        if (planner_manager_->drone_id >= 0 && planner_manager_->drone_id < TOTAL_DRONE_NUM_)
-        {
-          swarm_traj_ptr_[planner_manager_->drone_id].first = true;
-          swarm_traj_ptr_[planner_manager_->drone_id].second = traj_msg;
-          swarm_traj_ptr_[planner_manager_->drone_id].first = false;
-          ROS_INFO("Share Traj %d, t=%d.%d", planner_manager_->drone_id, start_time_.sec, start_time_.nsec);
-        }
-        else
-        {
-          ROS_ERROR("planner_manager_->drone_id >= 0 && planner_manager_->drone_id < TOTAL_DRONE_NUM_");
-        }
-#endif
 
         //vis
         std::vector<Eigen::Vector3d> traj_pos_vis;
@@ -1053,7 +850,6 @@ bool PPReplanFSM::planPrimitive(bool first_plan, double xV_offset /*= 0.0*/ )
         //     }
         //   }
 
-        //   cout << "d_list_min=" <<d_list_min << " id=" << planner_manager_->drone_id << " pc=" << pc_list_min.transpose() << " pt=" << traj_pos_min.transpose() << endl;
   
         // }
     }
@@ -1061,7 +857,7 @@ bool PPReplanFSM::planPrimitive(bool first_plan, double xV_offset /*= 0.0*/ )
     // std::cout << "planPrimitive: " << plan_success << std::endl;
 
     ros::Time t2 = ros::Time::now();
-    printf("\033[44;97mID=%d, plan_time=%.2f ms \033[0m\n", planner_manager_->drone_id, (t2-t0).toSec() * 1000);
+    printf("\033[44;97mplan_time=%.2f ms \033[0m\n", (t2-t0).toSec() * 1000);
     return plan_success;
 }
 

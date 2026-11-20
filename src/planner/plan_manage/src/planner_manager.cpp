@@ -24,8 +24,6 @@ void PPPlannerManager::initPlanModules(ros::NodeHandle &nh, PlanningVisualizatio
   nh.param("manager/map_size_y", y_size_, -1.0);
   nh.param("manager/map_size_z", z_size_, -1.0);
   nh.param("manager/max_vel", max_vel_, -1.0);
-  nh.param("manager/drone_id", drone_id, -1);
-  nh.param("manager/swarm_clearence", swarm_clearence_, -1.0);
 
 
   voxelNumX_ = int(boxX_ / voxelSize_);
@@ -35,8 +33,6 @@ void PPPlannerManager::initPlanModules(ros::NodeHandle &nh, PlanningVisualizatio
   voxelX_ = boxX_;
   voxelY_ = boxY_ / 2.0;
   voxelZ_ = boxZ_ / 2.0;
-  agentVoxelNumX_ = int(2.0 * voxelX_ / voxelSize_);
-  agentVoxelNumAll_ = agentVoxelNumX_ * voxelNumY_ * voxelNumZ_;
 
   correspondences_.resize(voxelNumAll_);
   for(int i = 0; i < voxelNumAll_; i++){
@@ -49,7 +45,6 @@ void PPPlannerManager::initPlanModules(ros::NodeHandle &nh, PlanningVisualizatio
   pathNum_ = readPathList();
   readPathAll();
   readCorrespondences();
-  readAgentCorrespondences();
   // t2 = ros::Time::now();
 
   // std::cout << "======readCorrespondences time====== " << (t2 - t1).toSec() << std::endl;
@@ -337,7 +332,7 @@ vector<int> PPPlannerManager::scorePaths(const Eigen::Vector3d &start_pt,
     // visualization_->displayInitPathList(pathAllWorld_[select_path_id.front()], 0.05, select_color, 0);
 
   } else{
-    ROS_WARN("====[id:%d] All primitives are infeasible!====", drone_id);
+    ROS_WARN("All primitives are infeasible!");
   }
 
   // std::cout << "select_path_id: ";
@@ -402,77 +397,6 @@ void PPPlannerManager::readCorrespondences()
   // }
 
   fclose(filePtr);
-}
-
-void PPPlannerManager::readAgentCorrespondences()
-{
-  std::string a = primitiveFolder_ + "/agent_correspondence/";
-  std::string b = "_correspondence.txt";
-  for(int i = 0; i <= int(max_vel_*10); i++)
-  {
-    std::stringstream ss;
-    ss << a << i << b;
-    std::string fileName = ss.str();
-    // std::cout << "file:" << fileName << std::endl;
-
-    FILE *filePtr = fopen(fileName.c_str(), "rb");
-    if (filePtr == NULL) {
-      printf ("\nCannot read input [agentcorrespondence files], i=%d, exit.\n\n", i);
-      exit(1);
-    }
-
-    std::vector<std::vector<int>> velCorrespondences(agentVoxelNumAll_, std::vector<int>(0, 0));
-
-    int val1, val2, val3, voxelID, pathID, tStart, tEnd;
-    for (int j = 0; j < agentVoxelNumAll_; j++) {
-
-      val1 = fread(&voxelID, 4, 1, filePtr);
-      if (val1 != 1) {
-        printf ("\nError reading [voxelID] input files, exit.\n\n");
-          exit(1);
-      }
-
-      while (1) {
-        val1 = fread(&pathID, 4, 1, filePtr);
-        if (val1 != 1) {
-          printf ("\nError reading [pathID] input files, exit.\n\n");
-            exit(1);
-        }
-
-        // std::cout << "pathID: " << pathID << std::endl;
-
-        if (pathID != -1) {
-          val2 = fread(&tStart, 4, 1, filePtr);
-          val3 = fread(&tEnd, 4, 1, filePtr);
-
-          if (voxelID >= 0 && voxelID < agentVoxelNumAll_ && pathID >= 0 && pathID < pathNum_) {
-            velCorrespondences[voxelID].push_back(pathID);
-            velCorrespondences[voxelID].push_back(tStart);
-            velCorrespondences[voxelID].push_back(tEnd);
-          }
-        } else {
-          break;
-        }
-      }
-    }
-    fclose(filePtr);
-
-    allVelCorrespondences_.push_back(velCorrespondences);
-  }
-
-  // check
-  // for (int i = 0; i <= int(max_vel_*10); i++) {
-  //   std::cout << "=====Output vel = " << i <<" correspondence=====" << std::endl;
-  //   for (int j = 0; j < voxelNumAll_; j++) {
-  //     if(!allVelCorrespondences_[i][j].empty()){
-  //       std::cout << "allVelCorrespondences_[" << i << "][" << j << "]: " << std::endl;
-  //       for(int k = 0; k < (int)allVelCorrespondences_[i][j].size(); k++){
-  //         std::cout << allVelCorrespondences_[i][j][k] << " ";
-  //       }
-  //       std::cout << std::endl;
-  //     }
-  //   }
-  // }
 }
 
 // void PPPlannerManager::readPathList()
@@ -627,114 +551,13 @@ void PPPlannerManager::visAllPaths(const Eigen::Vector3d &start_pt, const Eigen:
 
 }
 
-bool PPPlannerManager::labelAgentCollisionPaths(const Eigen::Vector3d &start_pt, const Eigen::Vector3d &start_v, const double& start_time, const Eigen::Matrix3d &rotVW)
-{
-  // Eigen::Matrix3d rotVW = rotWV.inverse();
-  int vel_id = int(round(start_v.norm() * 10));
-  if(vel_id > int(max_vel_ * 10)){
-    vel_id = max_vel_ * 10;
-  }
-
-  Eigen::Vector3d pos_v;
-  double other_start_time, other_cur_time;
-
-  // std::cout << "swarm_traj.size(): " << swarm_traj.size() <<  std::endl;
-  for(int i = 0; i < (int)swarm_traj.size(); i++)
-  {
-    if(swarm_traj[i].drone_id < 0 || swarm_traj[i].drone_id == drone_id)
-    {
-      // ROS_WARN("Drone %d trajectory is infeasible. status = %d", i, swarm_traj[i].drone_id);
-      continue;
-    }
-
-    other_start_time = swarm_traj[i].start_time;
-
-    // std::cout << "swarm_traj[" << i << "].traj_pos.size(): " << swarm_traj[i].traj_pos.size() << std::endl;
-
-    int indX, indY, indZ, ind, occPathNumByVoxel;
-
-    // TODO:[??? param set] check time resolution = voxel_resolution/max_vel / 5
-    for(int j = 0; j < (int)swarm_traj[i].traj_pos.size(); j += std::max(1, (int)(floor(voxelSize_ / max_vel_ * 100 / 5))))
-    {
-      pos_v = rotVW * (swarm_traj[i].traj_pos[j] - start_pt);
-
-      // std::cout << "pos_v: " << pos_v << "j: " << j << std::endl;
-
-      // TODO: whether in the range of box
-      if((pos_v(0) >= -voxelX_ + 1e-4 && pos_v(0) <= voxelX_ - 1e-4) &&
-          (pos_v(1) >= - voxelY_ + 1e-4 && pos_v(1) <= voxelY_ - 1e-4) &&
-          (pos_v(2) >= - voxelZ_ + 1e-4 && pos_v(2) <= voxelZ_ - 1e-4))
-          {
-            indX = floor((voxelX_ - pos_v(0)) / voxelSize_);
-            indY = floor((voxelY_ - pos_v(1)) / voxelSize_);
-            indZ = floor((voxelZ_ - pos_v(2)) / voxelSize_);
-
-            ind = voxelNumY_ * voxelNumZ_ * indX + voxelNumZ_ * indY + indZ;
-
-            occPathNumByVoxel = allVelCorrespondences_[vel_id][ind].size() / 3;
-
-            // std::cout << "occPathNumByVoxel: " << occPathNumByVoxel << "j: " << j << std::endl;
-
-            // time unit must be same sec.
-            other_cur_time = other_start_time + j * 0.01;
-            for(int k = 0; k < occPathNumByVoxel; k++)
-            {
-              if(other_cur_time > start_time + allVelCorrespondences_[vel_id][ind][3*k + 1] / 1000.0 && other_cur_time < start_time + allVelCorrespondences_[vel_id][ind][3*k + 2] / 1000.0){
-                // std::cout << "=== labelAgentCollisionPaths ID === " << allVelCorrespondences_[vel_id][ind][3*k] << "  " << 
-                // allVelCorrespondences_[vel_id][ind][3*k+1] << "  " <<
-                // allVelCorrespondences_[vel_id][ind][3*k+2] << std::endl;
-                clearPathList_[allVelCorrespondences_[vel_id][ind][3*k]]++;
-              }
-            }
-          }
-    }
-  }
-
-  // std::cout << "=== labelAgentCollisionPaths 3 ===" << std::endl;
-
-  return true;
-
-}
-
-bool PPPlannerManager::trajReplan(const Eigen::Vector3d &start_pt, const Eigen::Vector3d &start_v, const double& start_time, const Eigen::Matrix3d &RWV, const Eigen::Vector3d &global_goal, vector<int> &select_path_id)
+bool PPPlannerManager::trajReplan(const Eigen::Vector3d &start_pt, const Eigen::Matrix3d &RWV, const Eigen::Vector3d &global_goal, vector<int> &select_path_id)
 {
   // std::cout << "trajReplan 0" << std::endl;
   // Eigen::Vector3d rotWV = start_q;
   
   Eigen::Matrix3d RVW = RWV.inverse();
-
-  bool success_obs, success_agents;
-  ros::Time t0, t1, t2, t3;
-  t0 = ros::Time::now();
-  success_obs = labelObsCollisionPaths(start_pt, RVW);
-  t1 = ros::Time::now();
-
-  // bool safe = false;
-  // for (auto it : clearPathList_)
-  //   if (it == 0)
-  //   {
-  //     safe = true;
-  //     break;
-  //   }
-  // if ( !safe )
-  //   cout << "A clearPathList_ all > 0" << endl;
-
-  // std::cout << "trajReplan 1" << std::endl;
-
-  success_agents = labelAgentCollisionPaths(start_pt, start_v, start_time, RVW);
-  t2 = ros::Time::now();
-
-  // safe = false;
-  // for (auto it : clearPathList_)
-  //   if (it == 0)
-  //   {
-  //     safe = true;
-  //     break;
-  //   }
-  // if ( !safe )
-  //   cout << "B clearPathList_ all > 0" << endl;
-
-  if(!success_obs || !success_agents)
+  if (!labelObsCollisionPaths(start_pt, RVW))
     return false;
 
   // std::cout << "trajReplan 2" << std::endl;
@@ -743,9 +566,6 @@ bool PPPlannerManager::trajReplan(const Eigen::Vector3d &start_pt, const Eigen::
   // visAllPaths(start_pt, RWV);
 
   select_path_id = scorePaths(start_pt, global_goal, RWV);
-  t3 = ros::Time::now();
-
-  // printf("\033[44;97m In id=%d, t1=%.1f, t2=%.1f, t3=%.1f \033[0m\n", drone_id, (t1-t0).toSec() * 1000, (t2-t0).toSec() * 1000, (t3-t0).toSec() * 1000);
 
   if(select_path_id.empty())
     return false;

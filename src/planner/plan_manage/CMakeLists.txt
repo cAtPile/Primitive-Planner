@@ -16,14 +16,14 @@ find_package(catkin REQUIRED COMPONENTS
   quadrotor_msgs
   traj_utils
   message_generation
-  cv_bridge
+  nav_msgs
+  sensor_msgs
   pcl_ros
 )
 
 # catkin_package(CATKIN_DEPENDS message_runtime)
 catkin_package(
  INCLUDE_DIRS include
- LIBRARIES primitive_planner
  CATKIN_DEPENDS traj_utils pcl_ros
 #  DEPENDS system_lib
 )
@@ -45,10 +45,10 @@ add_executable(primitive_planner_node
 target_link_libraries(primitive_planner_node 
   ${catkin_LIBRARIES} ${PCL_LIBRARIES}
   )
-#add_dependencies(primitive_planner_node ${${PROJECT_NAME}_EXPORTED_TARGETS})
+add_dependencies(primitive_planner_node ${catkin_EXPORTED_TARGETS})
 
 add_executable(traj_server src/traj_server.cpp)
 target_link_libraries(traj_server ${catkin_LIBRARIES})
-# add_dependencies(traj_server ${${PROJECT_NAME}_EXPORTED_TARGETS})
+add_dependencies(traj_server ${catkin_EXPORTED_TARGETS})
 
 

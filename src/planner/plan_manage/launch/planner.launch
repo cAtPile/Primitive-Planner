@@ -1,0 +1,51 @@
+<launch>
+  <arg name="odom" default="/odom"/>
+  <arg name="cloud" default="/cloud"/>
+  <arg name="goal" default="/goal"/>
+  <arg name="position_cmd" default="/position_cmd"/>
+  <arg name="primitive_folder" default="$(find primitive_planner)/primitive_library"/>
+  <arg name="map_size_x" default="32.0"/>
+  <arg name="map_size_y" default="32.0"/>
+  <arg name="map_size_z" default="3.0"/>
+  <remap from="/position_cmd" to="$(arg position_cmd)"/>
+  <node pkg="primitive_planner" type="primitive_planner_node" name="primitive_planner" output="screen">
+    <remap from="~odom_world" to="$(arg odom)"/>
+    <remap from="~plan_manage/odom" to="$(arg odom)"/>
+    <remap from="~plan_manage/cloud" to="$(arg cloud)"/>
+    <remap from="~goal" to="$(arg goal)"/>
+    <remap from="~mandatory_stop" to="mandatory_stop"/>
+    <param name="fsm/flight_type" value="1"/>
+    <param name="fsm/no_replan_thresh" value="0.5"/>
+    <param name="fsm/thresh_replan_time" value="0.2"/>
+    <param name="manager/primitiveFolder" value="$(arg primitive_folder)"/>
+    <rosparam ns="manager">
+      boxX: 6.0
+      boxY: 6.0
+      boxZ: 6.0
+      depthCloudStackNum: 1
+      arc_length: 5.0
+      voxelSize: 0.1
+      max_vel: 1.0
+      sampleSize: 10000
+      lamda_l: 200.0
+      lamda_b: 50.0
+    </rosparam>
+    <param name="manager/map_size_x" value="$(arg map_size_x)"/>
+    <param name="manager/map_size_y" value="$(arg map_size_y)"/>
+    <param name="manager/map_size_z" value="$(arg map_size_z)"/>
+  </node>
+  <node pkg="primitive_planner" type="traj_server" name="traj_server" output="screen">
+    <remap from="~odom" to="$(arg odom)"/>
+    <remap from="~heartbeat" to="primitive_planner/planning/heartbeat"/>
+    <remap from="~stop_command" to="primitive_planner/planning/stop_command"/>
+    <remap from="~planning/selected_path_id" to="primitive_planner/planning/selected_path_id"/>
+    <remap from="~planning/polynomial_traj" to="primitive_planner/planning/polynomial_traj"/>
+    <remap from="~planning/global_goal" to="primitive_planner/planning/global_goal"/>
+    <remap from="~planning/yaw_cmd" to="primitive_planner/planning/yaw_cmd"/>
+    <remap from="~planning/select_path_end" to="primitive_planner/planning/select_path_end"/>
+    <param name="traj_server/primitiveFolder" value="$(arg primitive_folder)"/>
+    <param name="traj_server/max_vel" value="1.0"/>
+    <param name="traj_server/time_forward" value="1.0"/>
+    <param name="traj_server/time_delay_idx" value="0"/>
+  </node>
+</launch>

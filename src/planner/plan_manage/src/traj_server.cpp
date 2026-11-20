@@ -3,7 +3,7 @@
 #include <std_msgs/Empty.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/Float64.h>
-#include <traj_utils/swarmPrimitiveTraj.h>
+#include <traj_utils/primitiveTraj.h>
 #include <traj_utils/Polynomial.h>
 #include <visualization_msgs/Marker.h>
 #include <ros/ros.h>
@@ -181,7 +181,7 @@ void yawCmdCallback(const std_msgs::Float64Ptr msg)
   // std::cout << "yaw_cmd_external_: " << yaw_cmd_external_ << std::endl;
 }
 
-void trajCallback(traj_utils::swarmPrimitiveTrajPtr msg)
+void trajCallback(traj_utils::primitiveTrajPtr msg)
 {
   // if(!have_odom_){
   //   return;
