@@ -95,6 +95,15 @@ void publish_cmd(Vector3d p, Vector3d v, Vector3d a, double y, double yd)
   cmd.yaw = y;
   cmd.yaw_dot = yd;
   pos_cmd_pub.publish(cmd);
+  ROS_INFO_THROTTLE(1.0,
+                    "[Traj server] Published %s position=(%.3f, %.3f, %.3f) "
+                    "velocity=(%.3f, %.3f, %.3f) acceleration=(%.3f, %.3f, %.3f) "
+                    "yaw=%.3f yaw_rate=%.3f",
+                    pos_cmd_pub.getTopic().c_str(),
+                    cmd.position.x, cmd.position.y, cmd.position.z,
+                    cmd.velocity.x, cmd.velocity.y, cmd.velocity.z,
+                    cmd.acceleration.x, cmd.acceleration.y, cmd.acceleration.z,
+                    cmd.yaw, cmd.yaw_dot);
 
   last_pos_ = p;
   last_vel_ = v; 

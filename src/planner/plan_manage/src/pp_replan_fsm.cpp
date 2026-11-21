@@ -147,7 +147,9 @@ void PPReplanFSM::init(ros::NodeHandle &nh)
 
 void PPReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
 {
-  ROS_INFO("Received goal: %f, %f, %f", msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+  ROS_INFO("[Planner] Received goal frame=%s position=(%.3f, %.3f, %.3f)",
+           msg->header.frame_id.c_str(),
+           msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
 
   waypoint_num_ = 1;
   goal_id_ = 0;

@@ -8,3 +8,6 @@ src/CMakeLists.txt
 bags/
 src/planner/plan_manage/primitive_library
 bags_and_logs/
+.vscode/
+
+

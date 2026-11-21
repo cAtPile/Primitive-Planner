@@ -85,5 +85,6 @@
     "python.analysis.extraPaths": [
         "/home/hjl/project/A_personal_project/Primitive-Planner/devel/lib/python2.7/dist-packages",
         "/opt/ros/melodic/lib/python2.7/dist-packages"
-    ]
+    ],
+    "cmake.sourceDirectory": "/home/a/Primitive-Planner/src"
 }

@@ -384,7 +384,7 @@ def run(lib_dir, delta_angle=30, plot=False):
     # rotation delta_angle
     delta_angle = round(delta_angle)
     # drone radius
-    drone_radius = 0.15
+    drone_radius = 0.30
     # virtual grid resolution
     voxelSize = 0.1
     # box size coveraging all paths

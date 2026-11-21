@@ -1,0 +1,7 @@
+<launch>
+  <arg name="odom" default="/mavros/local_position/odom"/>
+  <arg name="cloud" default="/cloud"/>
+  <arg name="goal" default="/goal"/>
+  <arg name="position_cmd" default="/position_cmd"/>
+  <include file="$(find primitive_planner)/launch/planner_nodes.launch" pass_all_args="true"/>
+</launch>

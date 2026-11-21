@@ -15,6 +15,8 @@ roslaunch primitive_planner planner.launch
 
 ## maxt_pkg 接口
 
+独立启动时，可在 `src/planner/plan_manage/config/topics.launch` 中修改下表四个话题的默认值。命令行或宿主 launch 传入的同名参数优先。
+
 | 启动参数 | 默认话题 | 消息类型 | 用途 |
 | --- | --- | --- | --- |
 | odom | /odom | nav_msgs/Odometry | 输入当前位置、姿态与速度 |
